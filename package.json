@@ -1,0 +1,15 @@
+
+{
+  "name": "servicem8-lookup",
+  "version": "1.0.0",
+  "description": "Yeastar to ServiceM8 lookup API",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2"
+  }
+}
