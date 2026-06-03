@@ -3,12 +3,14 @@ import express from "express";
 import fetch from "node-fetch";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+
+// ✅ FORCE Render port usage ONLY
+const PORT = process.env.PORT;
 
 const API_KEY = process.env.SERVICEM8_API_KEY;
 
 app.get("/", (req, res) => {
-  res.send("ServiceM8 lookup API is running 🚀");
+  res.status(200).send("OK");
 });
 
 app.get("/lookup", async (req, res) => {
@@ -19,10 +21,10 @@ app.get("/lookup", async (req, res) => {
       return res.status(400).json({ error: "Missing number parameter" });
     }
 
-    // Normalize UK numbers
-    number = number.replace(/\s+/g, "");
+    number = number.replace(/\D/g, "");
+
     if (number.startsWith("0")) {
-      number = "44" + number.substring(1);
+      number = "44" + number.slice(1);
     }
 
     const response = await fetch(
@@ -49,7 +51,7 @@ app.get("/lookup", async (req, res) => {
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
