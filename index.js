@@ -3,20 +3,20 @@ import fetch from "node-fetch";
 
 const app = express();
 
-// ✅ Use ONLY Render's assigned port
+// ✅ Use Render port
 const PORT = process.env.PORT;
 
-// ✅ Your ServiceM8 API key from Render environment variables
+// ✅ ServiceM8 API key
 const API_KEY = process.env.SERVICEM8_API_KEY;
 
 
-// ✅ Root test route
+// ✅ Root route
 app.get("/", (req, res) => {
   res.status(200).send("OK");
 });
 
 
-// ✅ Debug test route
+// ✅ Test route
 app.get("/test", (req, res) => {
   res.send("TEST ROUTE WORKING");
 });
@@ -35,59 +35,78 @@ app.get("/lookup", async (req, res) => {
       return res.status(400).json({ error: "Missing number parameter" });
     }
 
-    // ✅ Clean + normalise number
+    // ✅ Clean number
     number = number.replace(/\D/g, "");
 
+    // ✅ Build UK variants
+    const variants = new Set();
+
+    variants.add(number);
+
     if (number.startsWith("0")) {
-      number = "44" + number.slice(1);
+      variants.add("44" + number.slice(1));
     }
 
-    console.log("Normalized number:", number);
+    if (number.startsWith("44")) {
+      variants.add("0" + number.slice(2));
+    }
 
-    // ✅ Call ServiceM8 API
-    const response = await fetch(
-      `https://api.servicem8.com/api_1.0/search.json?query=${number}`,
-      {
-        headers: {
-          Authorization: `Bearer ${API_KEY}`
+    console.log("Number variants:", [...variants]);
+
+    let foundContact = null;
+
+    // ✅ Try each variant against ServiceM8
+    for (const num of variants) {
+      console.log("Trying:", num);
+
+      const urls = [
+        `companycontact.json?mobile=${num}`,
+        `companycontact.json?phone=${num}`
+      ];
+
+      for (const path of urls) {
+        const response = await fetch(
+          `https://api.servicem8.com/api_1.0/${path}`,
+          {
+            headers: {
+              Authorization: `Bearer ${API_KEY}`
+            }
+          }
+        );
+
+        console.log("URL:", path, "Status:", response.status);
+
+        const data = await response.json();
+
+        console.log("Response:", data);
+
+        if (Array.isArray(data) && data.length > 0) {
+          foundContact = data[0];
+          break;
         }
       }
-    );
 
-    console.log("ServiceM8 status:", response.status);
-
-    const data = await response.json();
-
-    console.log("ServiceM8 raw response:", data);
-
-    // ✅ Ensure response is an array
-    if (!Array.isArray(data)) {
-      console.error("Unexpected response format:", data);
-      return res.json({ name: "Lookup failed" });
+      if (foundContact) break;
     }
 
-    // ✅ Find matching contact
-    const contact = data.find(
-      (item) => item.type === "companycontact"
-    );
+    // ✅ If match found
+    if (foundContact) {
+      const name = `${foundContact.first || ""} ${foundContact.last || ""}`.trim();
 
-    if (contact) {
-      const name = `${contact.first || ""} ${contact.last || ""}`.trim();
-
-      console.log("Match found:", name);
+      console.log("✅ Match found:", name);
 
       return res.json({
         name: name || "Unknown",
-        phone: contact.mobile || contact.phone || ""
+        phone: foundContact.mobile || foundContact.phone || ""
       });
     }
 
-    console.log("No match found");
+    console.log("❌ No match found");
 
     return res.json({ name: "Unknown Caller" });
 
   } catch (error) {
-    console.error("ERROR:", error);
+    console.error("🔥 ERROR:", error);
     res.status(500).json({ error: "Internal error" });
   }
 });
@@ -97,3 +116,4 @@ app.get("/lookup", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
