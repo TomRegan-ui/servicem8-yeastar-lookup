@@ -45,7 +45,7 @@ app.get("/lookup", async (req, res) => {
       `https://api.servicem8.com/api_1.0/search.json?query=${number}`,
       {
         headers: {
-          Authorization: `Bearer ${API_KEY}`
+          "X-API-Key": API_KEY
         }
       }
     );
