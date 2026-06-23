@@ -3,7 +3,7 @@ import fetch from "node-fetch";
 
 const app = express();
 
-// ✅ Use Render port
+// ✅ Render port
 const PORT = process.env.PORT;
 
 // ✅ ServiceM8 API key
@@ -35,69 +35,49 @@ app.get("/lookup", async (req, res) => {
       return res.status(400).json({ error: "Missing number parameter" });
     }
 
-    // ✅ Clean number
+    // ✅ Clean number (strip spaces, +, etc.)
     number = number.replace(/\D/g, "");
 
-    // ✅ Build UK variants
-    const variants = new Set();
+    console.log("Normalized number:", number);
 
-    variants.add(number);
-
-    if (number.startsWith("0")) {
-      variants.add("44" + number.slice(1));
-    }
-
-    if (number.startsWith("44")) {
-      variants.add("0" + number.slice(2));
-    }
-
-    console.log("Number variants:", [...variants]);
-
-    let foundContact = null;
-
-    // ✅ Try each variant against ServiceM8
-    for (const num of variants) {
-      console.log("Trying:", num);
-
-      const urls = [
-        `companycontact.json?mobile=${num}`,
-        `companycontact.json?phone=${num}`
-      ];
-
-      for (const path of urls) {
-        const response = await fetch(
-          `https://api.servicem8.com/api_1.0/${path}`,
-          {
-            headers: {
-              Authorization: `Bearer ${API_KEY}`
-            }
-          }
-        );
-
-        console.log("URL:", path, "Status:", response.status);
-
-        const data = await response.json();
-
-        console.log("Response:", data);
-
-        if (Array.isArray(data) && data.length > 0) {
-          foundContact = data[0];
-          break;
+    // ✅ Call ServiceM8 search (same as your REST client)
+    const response = await fetch(
+      `https://api.servicem8.com/api_1.0/search.json?query=${number}`,
+      {
+        headers: {
+          Authorization: `Bearer ${API_KEY}`
         }
       }
+    );
 
-      if (foundContact) break;
+    console.log("ServiceM8 status:", response.status);
+
+    const data = await response.json();
+
+    console.log("RAW RESPONSE:", JSON.stringify(data, null, 2));
+
+    // ✅ Handle BOTH possible response formats
+    let results = [];
+
+    if (Array.isArray(data)) {
+      results = data;
+    } else if (data && Array.isArray(data.results)) {
+      results = data.results;
     }
 
-    // ✅ If match found
-    if (foundContact) {
-      const name = `${foundContact.first || ""} ${foundContact.last || ""}`.trim();
+    console.log("Parsed results count:", results.length);
+
+    // ✅ Find a contact
+    const contact = results.find(item => item.type === "companycontact");
+
+    if (contact) {
+      const name = `${contact.first || ""} ${contact.last || ""}`.trim();
 
       console.log("✅ Match found:", name);
 
       return res.json({
         name: name || "Unknown",
-        phone: foundContact.mobile || foundContact.phone || ""
+        phone: contact.mobile || contact.phone || ""
       });
     }
 
@@ -116,4 +96,3 @@ app.get("/lookup", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
