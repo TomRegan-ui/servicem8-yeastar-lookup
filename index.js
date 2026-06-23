@@ -37,7 +37,6 @@ app.get("/lookup", async (req, res) => {
 
     // ✅ Clean number
     number = number.replace(/\D/g, "");
-
     console.log("Normalized number:", number);
 
     // ✅ Call ServiceM8 search API
@@ -56,7 +55,7 @@ app.get("/lookup", async (req, res) => {
 
     console.log("RAW RESPONSE:", JSON.stringify(data, null, 2));
 
-    // ✅ Handle BOTH formats (array or { results: [] })
+    // ✅ Extract results safely
     let results = [];
 
     if (Array.isArray(data)) {
@@ -66,34 +65,57 @@ app.get("/lookup", async (req, res) => {
     }
 
     console.log("Parsed results count:", results.length);
-
-    // 🔍 Show returned object types
     console.log("Result types:", results.map(r => r.type));
 
-    // ✅ Accept multiple possible types
-    const contact = results.find(item =>
-      item.type === "companycontact" ||
-      item.type === "contact" ||
-      item.type === "company"
-    );
+    // ✅ Prefer COMPANY first (best match for your data)
+    const contact =
+      results.find(r => r.type === "company") ||
+      results.find(r => r.type === "companycontact") ||
+      results.find(r => r.type === "contact");
 
     if (contact) {
-      // ✅ Handle different structures safely
-      const name =
-        contact.name ||
-        `${contact.first || ""} ${contact.last || ""}`.trim();
+      console.log("Matched type:", contact.type);
 
-      console.log("✅ Match found:", name);
+      // ✅ COMPANY (your real case)
+      if (contact.type === "company" && contact.data) {
+        const name = contact.data.name || "Unknown";
 
-      return res.json({
-        name: name || "Unknown",
-        phone: contact.mobile || contact.phone || ""
-      });
+        // ✅ Extract phone from highlights (clean HTML)
+        const phoneRaw = contact.highlights?.phone_numbers || "";
+        const phoneClean = phoneRaw.replace(/<[^>]+>/g, "");
+
+        return res.json({
+          name: name,
+          phone: phoneClean
+        });
+      }
+
+      // ✅ CONTACTS (if returned instead)
+      if (contact.type === "companycontact" && contact.data) {
+        const name = `${contact.data.first || ""} ${contact.data.last || ""}`.trim();
+
+        return res.json({
+          name: name || "Unknown",
+          phone: contact.data.mobile || contact.data.phone || ""
+        });
+      }
+
+      if (contact.type === "contact" && contact.data) {
+        const name = contact.data.name || "Unknown";
+
+        return res.json({
+          name: name,
+          phone: contact.data.mobile || contact.data.phone || ""
+        });
+      }
     }
 
-    console.log("❌ No match found");
+    console.log("❌ No usable match");
 
-    return res.json({ name: "Unknown Caller" });
+    return res.json({
+      name: "Unknown Caller",
+      phone: ""
+    });
 
   } catch (error) {
     console.error("🔥 ERROR:", error);
@@ -106,3 +128,4 @@ app.get("/lookup", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
