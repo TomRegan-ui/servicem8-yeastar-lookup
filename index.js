@@ -35,12 +35,12 @@ app.get("/lookup", async (req, res) => {
       return res.status(400).json({ error: "Missing number parameter" });
     }
 
-    // ✅ Clean number (strip spaces, +, etc.)
+    // ✅ Clean number
     number = number.replace(/\D/g, "");
 
     console.log("Normalized number:", number);
 
-    // ✅ Call ServiceM8 search (same as your REST client)
+    // ✅ Call ServiceM8 search API
     const response = await fetch(
       `https://api.servicem8.com/api_1.0/search.json?query=${number}`,
       {
@@ -56,7 +56,7 @@ app.get("/lookup", async (req, res) => {
 
     console.log("RAW RESPONSE:", JSON.stringify(data, null, 2));
 
-    // ✅ Handle BOTH possible response formats
+    // ✅ Handle BOTH formats (array or { results: [] })
     let results = [];
 
     if (Array.isArray(data)) {
@@ -67,11 +67,21 @@ app.get("/lookup", async (req, res) => {
 
     console.log("Parsed results count:", results.length);
 
-    // ✅ Find a contact
-    const contact = results.find(item => item.type === "companycontact");
+    // 🔍 Show returned object types
+    console.log("Result types:", results.map(r => r.type));
+
+    // ✅ Accept multiple possible types
+    const contact = results.find(item =>
+      item.type === "companycontact" ||
+      item.type === "contact" ||
+      item.type === "company"
+    );
 
     if (contact) {
-      const name = `${contact.first || ""} ${contact.last || ""}`.trim();
+      // ✅ Handle different structures safely
+      const name =
+        contact.name ||
+        `${contact.first || ""} ${contact.last || ""}`.trim();
 
       console.log("✅ Match found:", name);
 
