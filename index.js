@@ -2,11 +2,12 @@ import express from "express";
 import fetch from "node-fetch";
 
 const app = express();
+app.use(express.json());
 
-// ✅ Render port
+// ✅ Use Render assigned port ONLY
 const PORT = process.env.PORT;
 
-// ✅ ServiceM8 API key
+// ✅ API key from Render environment variables
 const API_KEY = process.env.SERVICEM8_API_KEY;
 
 
@@ -22,14 +23,13 @@ app.get("/test", (req, res) => {
 });
 
 
-// ✅ Main lookup route
+// ✅ Lookup route (used by Yeastar)
 app.get("/lookup", async (req, res) => {
   try {
     let number = req.query.number;
 
-    console.log("----- NEW REQUEST -----");
+    console.log("----- LOOKUP REQUEST -----");
     console.log("Incoming number:", number);
-    console.log("API KEY PRESENT:", !!API_KEY);
 
     if (!number) {
       return res.status(400).json({ error: "Missing number parameter" });
@@ -37,14 +37,19 @@ app.get("/lookup", async (req, res) => {
 
     // ✅ Clean number
     number = number.replace(/\D/g, "");
+
+    if (number.startsWith("0")) {
+      number = "44" + number.slice(1);
+    }
+
     console.log("Normalized number:", number);
 
-    // ✅ Call ServiceM8 search API
+    // ✅ Search ServiceM8
     const response = await fetch(
       `https://api.servicem8.com/api_1.0/search.json?query=${number}`,
       {
         headers: {
-          "X-API-Key": API_KEY
+          Authorization: `Bearer ${API_KEY}`
         }
       }
     );
@@ -52,74 +57,110 @@ app.get("/lookup", async (req, res) => {
     console.log("ServiceM8 status:", response.status);
 
     const data = await response.json();
-
-    console.log("RAW RESPONSE:", JSON.stringify(data, null, 2));
-
-    // ✅ Extract results safely
-    let results = [];
+    console.log("ServiceM8 response:", data);
 
     if (Array.isArray(data)) {
-      results = data;
-    } else if (data && Array.isArray(data.results)) {
-      results = data.results;
-    }
+      const contact = data.find(
+        (item) => item.type === "companycontact"
+      );
 
-    console.log("Parsed results count:", results.length);
-    console.log("Result types:", results.map(r => r.type));
-
-    // ✅ Prefer COMPANY first (best match for your data)
-    const contact =
-      results.find(r => r.type === "company") ||
-      results.find(r => r.type === "companycontact") ||
-      results.find(r => r.type === "contact");
-
-    if (contact) {
-      console.log("Matched type:", contact.type);
-
-      // ✅ COMPANY (your real case)
-      if (contact.type === "company" && contact.data) {
-        const name = contact.data.name || "Unknown";
-
-        // ✅ Extract phone from highlights (clean HTML)
-        const phoneRaw = contact.highlights?.phone_numbers || "";
-        const phoneClean = phoneRaw.replace(/<[^>]+>/g, "");
-
-        return res.json({
-          name: name,
-          phone: phoneClean
-        });
-      }
-
-      // ✅ CONTACTS (if returned instead)
-      if (contact.type === "companycontact" && contact.data) {
-        const name = `${contact.data.first || ""} ${contact.data.last || ""}`.trim();
+      // ✅ FOUND CONTACT
+      if (contact) {
+        const name = `${contact.first || ""} ${contact.last || ""}`.trim();
 
         return res.json({
           name: name || "Unknown",
-          phone: contact.data.mobile || contact.data.phone || ""
-        });
-      }
-
-      if (contact.type === "contact" && contact.data) {
-        const name = contact.data.name || "Unknown";
-
-        return res.json({
-          name: name,
-          phone: contact.data.mobile || contact.data.phone || ""
+          phone: contact.mobile || contact.phone || "",
+          company_uuid: contact.company_uuid
         });
       }
     }
 
-    console.log("❌ No usable match");
+    console.log("No match found — creating new contact");
+
+    // ✅ CREATE NEW COMPANY
+    const createResponse = await fetch(
+      "https://api.servicem8.com/api_1.0/company.json",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          name: `Caller ${number}`,
+          phone: number,
+          note: "Auto-created from Yeastar"
+        })
+      }
+    );
+
+    const newCompany = await createResponse.json();
+
+    console.log("Created company:", newCompany);
 
     return res.json({
-      name: "Unknown Caller",
-      phone: ""
+      name: "New Caller",
+      phone: number,
+      company_uuid: newCompany.uuid
     });
 
   } catch (error) {
-    console.error("🔥 ERROR:", error);
+    console.error("LOOKUP ERROR:", error);
     res.status(500).json({ error: "Internal error" });
+  }
+});
+
+
+// ✅ Create contact route (Yeastar POST integration)
+app.post("/create-contact", async (req, res) => {
+  try {
+    console.log("----- CREATE CONTACT REQUEST -----");
+    console.log("Request body:", req.body);
+
+    let number = req.body.phone || req.body.mobile || "";
+
+    // ✅ Clean number
+    number = number.replace(/\D/g, "");
+
+    if (number.startsWith("0")) {
+      number = "44" + number.slice(1);
+    }
+
+    const name = req.body.name || `Caller ${number}`;
+
+    // ✅ Create in ServiceM8
+    const createResponse = await fetch(
+      "https://api.servicem8.com/api_1.0/company.json",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          name: name,
+          phone: number,
+          note: "Created from Yeastar contact sync"
+        })
+      }
+    );
+
+    const data = await createResponse.json();
+
+    console.log("Created in ServiceM8:", data);
+
+    return res.json({
+      success: true,
+      company_uuid: data.uuid
+    });
+
+  } catch (error) {
+    console.error("CREATE ERROR:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to create contact"
+    });
   }
 });
 
@@ -128,4 +169,3 @@ app.get("/lookup", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
